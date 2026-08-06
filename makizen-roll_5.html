@@ -25,6 +25,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
 <script>
   // Registra el service worker (necesario para que Chrome ofrezca "Instalar app").
   if ("serviceWorker" in navigator) {
@@ -1332,6 +1333,17 @@ var db = null;
 if (SYNC_ENABLED){
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
+
+    // App Check: firma cada solicitud a Firestore para probar que viene de
+    // esta app real (y no de alguien copiando el código/las llaves).
+    // La "clave del sitio" de reCAPTCHA v3 no es secreta, es normal que
+    // esté aquí en el código — la protección real la da la clave SECRETA,
+    // que solo vive dentro de la consola de Firebase, nunca en este archivo.
+    firebase.appCheck().activate(
+      "6Ld7pHctAAAAAP4GxWYVNFkB_kgm7KFD5BdS1Myo",
+      true // refresca el token automáticamente
+    );
+
     db = firebase.firestore();
     // Modo dual: guarda una copia local de la base de datos en el propio
     // dispositivo. Si se cae el internet o el wifi, la caja/cocina/bar
@@ -1360,7 +1372,7 @@ if (SYNC_ENABLED){
       publicada, no una copia vieja guardada en el dispositivo.
    Mientras APP_UPDATE_URL esté vacío, este chequeo simplemente no hace nada
    (no rompe el modo local ni el modo Firebase). */
-var APP_VERSION = "2026-08-05-3";
+var APP_VERSION = "2026-08-05-4";
 var APP_UPDATE_URL = "https://makizenroll-bit.github.io/makizen-roll/version.json";
 
 function useAppUpdateChecker(){
