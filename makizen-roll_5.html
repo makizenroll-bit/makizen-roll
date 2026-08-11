@@ -2740,12 +2740,27 @@ function OrderBuilder(props){
   }, 0);
   var deliveryFee = orderType === "Domicilio" ? deliveryFeeAmount : 0;
 
+  function cheapestCartUnit(){
+    var cheapest = null;
+    cart.forEach(function(item){
+      var modsTotal = item.modifiers.reduce(function(s, m){ return s + Number(m.price); }, 0);
+      var unitPrice = Number(item.price) + modsTotal;
+      if (!cheapest || unitPrice < cheapest.price){
+        cheapest = { name: item.name, price: unitPrice };
+      }
+    });
+    return cheapest;
+  }
+  var promo3x2Item = discountType === "promo3x2" ? cheapestCartUnit() : null;
+
   var rawDiscountValue = Number(discountValue) || 0;
   var discountAmount = 0;
   if (discountType === "percent"){
     discountAmount = cartSubtotal * (rawDiscountValue / 100);
-  } else if (discountType === "fixed" || discountType === "promo3x2"){
+  } else if (discountType === "fixed"){
     discountAmount = rawDiscountValue;
+  } else if (discountType === "promo3x2"){
+    discountAmount = promo3x2Item ? promo3x2Item.price : 0;
   }
   if (discountAmount > cartSubtotal) discountAmount = cartSubtotal;
   if (discountAmount < 0) discountAmount = 0;
@@ -2776,7 +2791,9 @@ function OrderBuilder(props){
       customerAddress: orderType === "Domicilio" ? customerAddress.trim() : "",
       deliveryFee: deliveryFee,
       discountAmount: discountAmount,
-      discountLabel: discountAmount > 0 ? discountLabel.split("__idx:")[0].trim() : "",
+      discountLabel: discountAmount > 0
+        ? (discountType === "promo3x2" && promo3x2Item ? "3x2 Martes: " + promo3x2Item.name + " gratis" : discountLabel.trim())
+        : "",
       deliveryStatus: orderType === "Domicilio" ? "preparando" : null,
       items: cart,
       status: "en_cocina",
@@ -2958,28 +2975,15 @@ function OrderBuilder(props){
             </div>
             {discountType === "promo3x2" && (
               <div style={{marginTop:10}}>
-                <div className="field">
-                  <label>¿Cuál platillo sale gratis?</label>
-                  <select
-                    value={discountLabel.indexOf("__idx:") === 0 ? discountLabel.split("__idx:")[1] : ""}
-                    onChange={function(e){
-                      var idx = e.target.value;
-                      if (idx === ""){ setDiscountValue(""); setDiscountLabel(""); return; }
-                      var item = cart[Number(idx)];
-                      var modsTotal = item.modifiers.reduce(function(s, m){ return s + Number(m.price); }, 0);
-                      var unitPrice = Number(item.price) + modsTotal;
-                      setDiscountValue(String(unitPrice));
-                      setDiscountLabel("3x2 Martes: " + item.name + " gratis__idx:" + idx);
-                    }}
-                  >
-                    <option value="">Selecciona un platillo del carrito</option>
-                    {cart.map(function(item, idx){
-                      return <option key={idx} value={idx}>{item.name}{item.qty > 1 ? " (x" + item.qty + ")" : ""}</option>;
-                    })}
-                  </select>
-                </div>
+                {promo3x2Item ? (
+                  <p style={{fontSize:13, fontWeight:600}}>
+                    🎁 Gratis: {promo3x2Item.name} ({money(promo3x2Item.price)}) — el platillo de menor precio en el carrito.
+                  </p>
+                ) : (
+                  <p style={{fontSize:12.5, color:"var(--ink-600)"}}>Agrega platillos al carrito para calcular el gratis.</p>
+                )}
                 <p style={{fontSize:11.5, color:"var(--ink-600)", marginTop:6}}>
-                  Recuerda: la promo 3x2 aplica pidiendo 2 rollos (se cobran los 2 de mayor precio); el que elijas aquí se descuenta como gratis.
+                  Recuerda: la promo 3x2 aplica pidiendo 2 rollos (se cobran los 2 de mayor precio); el de menor precio se descuenta como gratis automáticamente.
                 </p>
               </div>
             )}
@@ -3011,7 +3015,7 @@ function OrderBuilder(props){
 
         {!appendMode && discountAmount > 0 && (
           <div className="cart-total-row" style={{fontSize:13, color:"var(--umeboshi-500)"}}>
-            <span>Descuento{discountLabel.split("__idx:")[0].trim() ? " (" + discountLabel.split("__idx:")[0].trim() + ")" : ""}</span>
+            <span>Descuento{(discountType === "promo3x2" && promo3x2Item ? "3x2 Martes: " + promo3x2Item.name + " gratis" : discountLabel.trim()) ? " (" + (discountType === "promo3x2" && promo3x2Item ? "3x2 Martes: " + promo3x2Item.name + " gratis" : discountLabel.trim()) + ")" : ""}</span>
             <span>−{money(discountAmount)}</span>
           </div>
         )}
