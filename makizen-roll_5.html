@@ -2744,7 +2744,7 @@ function OrderBuilder(props){
   var discountAmount = 0;
   if (discountType === "percent"){
     discountAmount = cartSubtotal * (rawDiscountValue / 100);
-  } else if (discountType === "fixed"){
+  } else if (discountType === "fixed" || discountType === "promo3x2"){
     discountAmount = rawDiscountValue;
   }
   if (discountAmount > cartSubtotal) discountAmount = cartSubtotal;
@@ -2776,7 +2776,7 @@ function OrderBuilder(props){
       customerAddress: orderType === "Domicilio" ? customerAddress.trim() : "",
       deliveryFee: deliveryFee,
       discountAmount: discountAmount,
-      discountLabel: discountAmount > 0 ? discountLabel.trim() : "",
+      discountLabel: discountAmount > 0 ? discountLabel.split("__idx:")[0].trim() : "",
       deliveryStatus: orderType === "Domicilio" ? "preparando" : null,
       items: cart,
       status: "en_cocina",
@@ -2954,8 +2954,36 @@ function OrderBuilder(props){
               <div className={"discount-toggle-btn" + (discountType === "none" ? " active" : "")} onClick={function(){ setDiscountType("none"); setDiscountValue(""); setDiscountLabel(""); }}>Sin descuento</div>
               <div className={"discount-toggle-btn" + (discountType === "percent" ? " active" : "")} onClick={function(){ setDiscountType("percent"); }}>% Porcentaje</div>
               <div className={"discount-toggle-btn" + (discountType === "fixed" ? " active" : "")} onClick={function(){ setDiscountType("fixed"); }}>$ Monto fijo</div>
+              <div className={"discount-toggle-btn" + (discountType === "promo3x2" ? " active" : "")} onClick={function(){ setDiscountType("promo3x2"); setDiscountValue(""); setDiscountLabel(""); }}>🎉 3x2</div>
             </div>
-            {discountType !== "none" && (
+            {discountType === "promo3x2" && (
+              <div style={{marginTop:10}}>
+                <div className="field">
+                  <label>¿Cuál platillo sale gratis?</label>
+                  <select
+                    value={discountLabel.indexOf("__idx:") === 0 ? discountLabel.split("__idx:")[1] : ""}
+                    onChange={function(e){
+                      var idx = e.target.value;
+                      if (idx === ""){ setDiscountValue(""); setDiscountLabel(""); return; }
+                      var item = cart[Number(idx)];
+                      var modsTotal = item.modifiers.reduce(function(s, m){ return s + Number(m.price); }, 0);
+                      var unitPrice = Number(item.price) + modsTotal;
+                      setDiscountValue(String(unitPrice));
+                      setDiscountLabel("3x2 Martes: " + item.name + " gratis__idx:" + idx);
+                    }}
+                  >
+                    <option value="">Selecciona un platillo del carrito</option>
+                    {cart.map(function(item, idx){
+                      return <option key={idx} value={idx}>{item.name}{item.qty > 1 ? " (x" + item.qty + ")" : ""}</option>;
+                    })}
+                  </select>
+                </div>
+                <p style={{fontSize:11.5, color:"var(--ink-600)", marginTop:6}}>
+                  Recuerda: la promo 3x2 aplica pidiendo 2 rollos (se cobran los 2 de mayor precio); el que elijas aquí se descuenta como gratis.
+                </p>
+              </div>
+            )}
+            {(discountType === "percent" || discountType === "fixed") && (
               <div className="field-row" style={{marginTop:10}}>
                 <div className="field">
                   <label>{discountType === "percent" ? "Porcentaje (%)" : "Monto ($)"}</label>
@@ -2983,7 +3011,7 @@ function OrderBuilder(props){
 
         {!appendMode && discountAmount > 0 && (
           <div className="cart-total-row" style={{fontSize:13, color:"var(--umeboshi-500)"}}>
-            <span>Descuento{discountLabel.trim() ? " (" + discountLabel.trim() + ")" : ""}</span>
+            <span>Descuento{discountLabel.split("__idx:")[0].trim() ? " (" + discountLabel.split("__idx:")[0].trim() + ")" : ""}</span>
             <span>−{money(discountAmount)}</span>
           </div>
         )}
@@ -3720,6 +3748,8 @@ function CajaModule(props){
 
   var [tab, setTab] = useState("cobrar");
   var [charging, setCharging] = useState(null);
+  var [chargingItems, setChargingItems] = useState([]);
+  var [editingItems, setEditingItems] = useState(false);
   var [method, setMethod] = useState("Efectivo");
   var [paidByName, setPaidByName] = useState("");
   var [tipAmount, setTipAmount] = useState("");
@@ -3750,6 +3780,7 @@ function CajaModule(props){
 
   var totalHoy = pagadasHoy.reduce(function(s,o){ return s + orderTotal(o); }, 0);
   var propinasHoy = pagadasHoy.reduce(function(s,o){ return s + (Number(o.tipAmount) || 0); }, 0);
+  var domiciliosHoy = pagadasHoy.filter(function(o){ return o.type === "Domicilio"; }).length;
   var porMetodo = {};
   PAYMENT_METHODS.forEach(function(m){ porMetodo[m] = { total:0, count:0 }; });
   pagadasHoy.forEach(function(o){
@@ -3781,11 +3812,44 @@ function CajaModule(props){
 
   function openCharge(order){
     setCharging(order);
+    setChargingItems(order.items.map(function(it){ return Object.assign({}, it); }));
+    setEditingItems(false);
     setMethod("Efectivo");
     setPaidByName(currentEmployeeName || ((settings.employees && settings.employees[0]) ? settings.employees[0].name : ""));
     setTipAmount("");
     setSplitCount(1);
     setRedeemPoints(false);
+  }
+
+  function chargeItemsSubtotal(){
+    return chargingItems.reduce(function(sum, item){
+      var modsTotal = (item.modifiers || []).reduce(function(s, m){ return s + Number(m.price); }, 0);
+      return sum + (Number(item.price) + modsTotal) * item.qty;
+    }, 0);
+  }
+
+  function chargeChangeQty(idx, delta){
+    var next = chargingItems.slice();
+    var newQty = next[idx].qty + delta;
+    if (newQty <= 0){
+      next.splice(idx, 1);
+    } else {
+      next[idx] = Object.assign({}, next[idx], { qty: newQty });
+    }
+    setChargingItems(next);
+  }
+
+  function chargeRemoveItem(idx){
+    setChargingItems(chargingItems.filter(function(c, i){ return i !== idx; }));
+  }
+
+  async function chargeEditNote(idx){
+    var current = chargingItems[idx].note || "";
+    var note = await appPrompt("Nota para \"" + chargingItems[idx].name + "\" (ej. sin cebollín, extra picante):", current);
+    if (note === null) return;
+    var next = chargingItems.slice();
+    next[idx] = Object.assign({}, next[idx], { note: note.trim() });
+    setChargingItems(next);
   }
 
   function cancelOrder(id){
@@ -3825,8 +3889,10 @@ function CajaModule(props){
 
   function total(){
     if (!charging) return 0;
-    var t = orderTotal(charging) - loyaltyDiscount;
-    return t < 0 ? 0 : t;
+    var itemsTotal = chargeItemsSubtotal();
+    var afterDiscount = itemsTotal - (Number(charging.discountAmount) || 0) - loyaltyDiscount;
+    if (afterDiscount < 0) afterDiscount = 0;
+    return afterDiscount + (Number(charging.deliveryFee) || 0);
   }
 
   function canConfirm(){
@@ -3845,6 +3911,7 @@ function CajaModule(props){
     setOrders(orders.map(function(o){
       if (o.id !== id) return o;
       return Object.assign({}, o, {
+        items: chargingItems,
         status:"pagada",
         paymentMethod: method,
         paidBy: paidByName || "",
@@ -3883,6 +3950,7 @@ function CajaModule(props){
         totalPropinas: propinasHoy,
         comandasCobradas: pagadasHoy.length,
         comandasCanceladas: canceladasHoy.length,
+        domiciliosCobrados: domiciliosHoy,
         closedBy: who,
         porMetodo: PAYMENT_METHODS.map(function(m){ return { metodo:m, total: porMetodo[m].total, count: porMetodo[m].count }; })
       };
@@ -3966,6 +4034,10 @@ function CajaModule(props){
               <div className="stat-label">Comandas canceladas</div>
               <div className="stat-value">{canceladasHoy.length}</div>
             </div>
+            <div className="stat-card">
+              <div className="stat-label">Envíos a domicilio</div>
+              <div className="stat-value">{domiciliosHoy}</div>
+            </div>
           </div>
 
           <div className="corte-metodos">
@@ -3988,7 +4060,7 @@ function CajaModule(props){
                   return (
                     <div key={c.id} className="corte-metodo-row">
                       <span>{new Date(c.closedAt).toLocaleString("es-MX", { dateStyle:"medium", timeStyle:"short" })}{c.closedBy ? " · " + c.closedBy : ""}</span>
-                      <span className="corte-metodo-count">{c.comandasCobradas} cobradas · {c.comandasCanceladas} canceladas{Number(c.totalPropinas) > 0 ? " · propinas " + money(c.totalPropinas) : ""}</span>
+                      <span className="corte-metodo-count">{c.comandasCobradas} cobradas · {c.comandasCanceladas} canceladas{Number(c.domiciliosCobrados) > 0 ? " · " + c.domiciliosCobrados + " envío" + (c.domiciliosCobrados !== 1 ? "s" : "") : ""}{Number(c.totalPropinas) > 0 ? " · propinas " + money(c.totalPropinas) : ""}</span>
                       <span className="corte-metodo-total">{money(c.total)}</span>
                     </div>
                   );
@@ -4104,6 +4176,68 @@ function CajaModule(props){
                 ) : (
                   <div style={{fontSize:11.5, marginTop:4, color:"var(--ink-600)"}}>Necesita {redeemPointsCost} puntos para canjear (le faltan {Math.max(redeemPointsCost - (chargingCustomer.points || 0), 0)}).</div>
                 )}
+              </div>
+            )}
+
+            <div style={{margin:"10px 0"}}>
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                <label style={{margin:0}}>Platillos</label>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{padding:"3px 10px", fontSize:11.5}}
+                  onClick={function(){ setEditingItems(!editingItems); }}
+                >
+                  {editingItems ? "Listo" : "✎ Modificar"}
+                </button>
+              </div>
+              {chargingItems.length === 0 ? (
+                <p style={{fontSize:12.5, color:"var(--ink-600)"}}>Sin platillos en esta comanda.</p>
+              ) : (
+                chargingItems.map(function(item, idx){
+                  var modsTotal = (item.modifiers || []).reduce(function(s, m){ return s + Number(m.price); }, 0);
+                  var lineTotal = (Number(item.price) + modsTotal) * item.qty;
+                  return (
+                    <div className="cart-item" key={idx}>
+                      <div className="cart-item-top">
+                        <div className="cart-item-name">{item.qty} × {item.name}</div>
+                        <div className="cart-item-price">{money(lineTotal)}</div>
+                      </div>
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <div className="cart-item-mods">
+                          {item.modifiers.map(function(m){ return m.name; }).join(", ")}
+                        </div>
+                      )}
+                      {item.note && (
+                        <div className="cart-item-note">📝 {item.note}</div>
+                      )}
+                      {editingItems && (
+                        <div>
+                          <div className="qty-stepper">
+                            <button className="qty-btn" onClick={function(){ chargeChangeQty(idx, -1); }}>−</button>
+                            <span className="qty-val">{item.qty}</span>
+                            <button className="qty-btn" onClick={function(){ chargeChangeQty(idx, 1); }}>+</button>
+                          </div>
+                          <button className="cart-item-remove" onClick={function(){ chargeEditNote(idx); }}>{item.note ? "Editar nota" : "+ Nota"}</button>
+                          <button className="cart-item-remove" onClick={function(){ chargeRemoveItem(idx); }}>Quitar</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {Number(charging.discountAmount) > 0 && (
+              <div className="cart-total-row" style={{fontSize:13, color:"var(--umeboshi-500)"}}>
+                <span>Descuento{charging.discountLabel ? " (" + charging.discountLabel + ")" : ""}</span>
+                <span>−{money(Number(charging.discountAmount))}</span>
+              </div>
+            )}
+            {Number(charging.deliveryFee) > 0 && (
+              <div className="cart-total-row" style={{fontSize:13, color:"var(--ink-600)"}}>
+                <span>Envío</span>
+                <span>{money(Number(charging.deliveryFee))}</span>
               </div>
             )}
 
