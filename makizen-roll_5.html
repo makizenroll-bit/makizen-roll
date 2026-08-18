@@ -2110,7 +2110,7 @@ function Dashboard(props){
   var avgPrice = dishes.length ? (dishes.reduce(function(s,d){return s + Number(d.price);}, 0) / dishes.length) : 0;
   var enCocina = orders.filter(function(o){ return o.status === "en_cocina"; });
   var ventasHoy = orders
-    .filter(function(o){ return o.status === "pagada"; })
+    .filter(function(o){ return o.status === "pagada" && o.paidAt && new Date(o.paidAt).toDateString() === new Date().toDateString(); })
     .reduce(function(s,o){ return s + orderTotal(o); }, 0);
 
   return (
