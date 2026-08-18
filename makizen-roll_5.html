@@ -4945,6 +4945,7 @@ function ConfiguracionModule(props){
   var [newEmpPin, setNewEmpPin] = useState("");
   var [newExtraName, setNewExtraName] = useState("");
   var [newExtraPrice, setNewExtraPrice] = useState("");
+  var [editingExtraId, setEditingExtraId] = useState(null);
   var [lastBackupAt, setLastBackupAt] = useState(function(){
     return loadLocal("makizen_last_backup") || null;
   });
@@ -5026,7 +5027,7 @@ function ConfiguracionModule(props){
     setSettings(next);
   }
 
-  async function addExtra(){
+  async function saveExtra(){
     var name = newExtraName.trim();
     var price = Number(newExtraPrice);
     if (!name){
@@ -5038,10 +5039,25 @@ function ConfiguracionModule(props){
       return;
     }
     var extrasList = form.extras || [];
-    var nextExtras = extrasList.concat([{ id: uid(), name: name, price: price }]);
+    var nextExtras = editingExtraId
+      ? extrasList.map(function(ex){ return ex.id === editingExtraId ? { id: ex.id, name: name, price: price } : ex; })
+      : extrasList.concat([{ id: uid(), name: name, price: price }]);
     var next = Object.assign({}, form, { extras: nextExtras });
     setForm(next);
     setSettings(next);
+    setNewExtraName("");
+    setNewExtraPrice("");
+    setEditingExtraId(null);
+  }
+
+  function editExtra(ex){
+    setEditingExtraId(ex.id);
+    setNewExtraName(ex.name);
+    setNewExtraPrice(String(ex.price));
+  }
+
+  function cancelEditExtra(){
+    setEditingExtraId(null);
     setNewExtraName("");
     setNewExtraPrice("");
   }
@@ -5344,7 +5360,10 @@ function ConfiguracionModule(props){
                 <div className="corte-metodo-row" key={ex.id}>
                   <span>{ex.name}</span>
                   <span className="corte-metodo-count">{money(Number(ex.price) || 0)}</span>
-                  <button className="btn btn-danger-ghost" onClick={function(){ removeExtra(ex.id); }}>Eliminar</button>
+                  <div style={{display:"flex", gap:8}}>
+                    <button className="btn btn-ghost" onClick={function(){ editExtra(ex); }}>Editar</button>
+                    <button className="btn btn-danger-ghost" onClick={function(){ removeExtra(ex.id); }}>Eliminar</button>
+                  </div>
                 </div>
               );
             })}
@@ -5360,7 +5379,12 @@ function ConfiguracionModule(props){
             <input type="number" min="0" value={newExtraPrice} placeholder="p. ej. 5" onChange={function(e){ setNewExtraPrice(e.target.value); }} />
           </div>
         </div>
-        <button className="btn btn-primary" onClick={addExtra}>+ Agregar extra</button>
+        <div style={{display:"flex", gap:10, alignItems:"center"}}>
+          <button className="btn btn-primary" onClick={saveExtra}>{editingExtraId ? "Guardar cambios" : "+ Agregar extra"}</button>
+          {editingExtraId && (
+            <button className="btn btn-ghost" onClick={cancelEditExtra}>Cancelar</button>
+          )}
+        </div>
         </div>
         )}
       </div>
