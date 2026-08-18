@@ -3595,6 +3595,7 @@ function SalesHistoryByDay(props){
   var settings = props.settings || {};
   var [expandedId, setExpandedId] = useState(null);
   var [pinPrompt, setPinPrompt] = useState(null);
+  var [openDayKeys, setOpenDayKeys] = useState(null);
 
   function requestPin(actionLabel, masterPin, onSuccess){
     setPinPrompt({ actionLabel: actionLabel, masterPin: masterPin, onSuccess: onSuccess });
@@ -3626,15 +3627,23 @@ function SalesHistoryByDay(props){
     }
   });
 
+  var effectiveOpenKeys = openDayKeys !== null ? openDayKeys : (groups.length > 0 ? [groups[0].key] : []);
+  function toggleDay(key){
+    var isOpen = effectiveOpenKeys.indexOf(key) !== -1;
+    var next = isOpen ? effectiveOpenKeys.filter(function(k){ return k !== key; }) : effectiveOpenKeys.concat([key]);
+    setOpenDayKeys(next);
+  }
+
   return (
     <div>
       {groups.map(function(g){
         return (
           <div className="day-group" key={g.key}>
-            <div className="day-group-header">
+            <div className="day-group-header" style={{cursor:"pointer"}} onClick={function(){ toggleDay(g.key); }}>
               <div className="day-group-title">{dayLabel(g.when)}</div>
-              <div className="day-group-stats">{g.count} venta{g.count !== 1 ? "s" : ""} · <strong>{money(g.total)}</strong></div>
+              <div className="day-group-stats">{g.count} venta{g.count !== 1 ? "s" : ""} · <strong>{money(g.total)}</strong> <span className="config-chevron">{effectiveOpenKeys.indexOf(g.key) !== -1 ? "▾" : "▸"}</span></div>
             </div>
+            {effectiveOpenKeys.indexOf(g.key) !== -1 && (
             <div className="sales-table">
               <div className="sales-table-head">
                 <div>Fecha / hora</div>
@@ -3721,6 +3730,7 @@ function SalesHistoryByDay(props){
                 );
               })}
             </div>
+            )}
           </div>
         );
       })}
