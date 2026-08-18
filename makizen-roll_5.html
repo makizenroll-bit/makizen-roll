@@ -5327,7 +5327,7 @@ function ConfiguracionModule(props){
   );
 }
 
-function StationBoard(props){
+function StationBoard(props){ var dishes = props.dishes || []; var dishesById = {}; dishes.forEach(function(d){ dishesById[d.id] = d; });
   var orders = props.orders;
   var setOrders = props.setOrders;
   var kiosk = !!props.kiosk;
@@ -5456,6 +5456,7 @@ function StationBoard(props){
                     return (
                       <div key={i}>
                         {it.qty} × {it.name}{it.modifiers.length > 0 ? " (" + it.modifiers.map(function(m){ return m.name; }).join(", ") + ")" : ""}
+                        {(function(){ var d = dishesById[it.dishId]; return d && d.category && d.category.toLowerCase().indexOf("charola") !== -1 && d.description ? (<div className="kds-item-note">🍱 {d.description}</div>) : null; })()}
                         {it.note && <div className="kds-item-note">📝 {it.note}</div>}
                       </div>
                     );
@@ -5486,14 +5487,14 @@ function StationBoard(props){
 }
 
 function KDSModule(props){
-  return <StationBoard orders={props.orders} setOrders={props.setOrders} kiosk={props.kiosk} settings={props.settings} station="cocina" />;
+  return <StationBoard orders={props.orders} setOrders={props.setOrders} kiosk={props.kiosk} settings={props.settings} dishes={props.dishes} station="cocina" />;
 }
 
 function BarModule(props){
-  return <StationBoard orders={props.orders} setOrders={props.setOrders} kiosk={props.kiosk} settings={props.settings} station="bar" />;
+  return <StationBoard orders={props.orders} setOrders={props.setOrders} kiosk={props.kiosk} settings={props.settings} dishes={props.dishes} station="bar" />;
 }
 
-function StationKiosk(props){
+function StationKiosk(props){ var dishes = props.dishes;
   var orders = props.orders;
   var setOrders = props.setOrders;
   var settings = props.settings;
@@ -5529,9 +5530,9 @@ function StationKiosk(props){
       </div>
       <div className="kiosk-content">
         {station === "bar" ? (
-          <BarModule orders={orders} setOrders={setOrders} settings={settings} kiosk={true} />
+          <BarModule orders={orders} setOrders={setOrders} settings={settings} kiosk={true} dishes={dishes} />
         ) : (
-          <KDSModule orders={orders} setOrders={setOrders} settings={settings} kiosk={true} />
+          <KDSModule orders={orders} setOrders={setOrders} settings={settings} kiosk={true} dishes={dishes} />
         )}
       </div>
     </div>
@@ -5606,7 +5607,7 @@ function AppInner(){
   })();
 
   if (kioskStation){
-    return <StationKiosk orders={orders} setOrders={setOrders} settings={settings} station={kioskStation} />;
+    return <StationKiosk orders={orders} setOrders={setOrders} settings={settings} station={kioskStation} dishes={dishes} />;
   }
 
   var employeesList = settings.employees || [];
@@ -5743,8 +5744,8 @@ function AppInner(){
           {view === "mesas" && <MesasModule dishes={dishes} orders={orders} setOrders={setOrders} tables={tables} onCobrar={goToCaja} categories={categories} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
           {view === "pos" && <ComandasModule dishes={dishes} orders={orders} setOrders={setOrders} customers={customers} setCustomers={setCustomers} categories={categories} tables={tables} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
           {view === "caja" && <CajaModule orders={orders} setOrders={setOrders} focusOrderId={cajaFocusId} clearFocus={function(){ setCajaFocusId(null); }} settings={settings} cortes={cortes} setCortes={setCortes} customers={customers} setCustomers={setCustomers} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
-          {view === "cocina" && <KDSModule orders={orders} setOrders={setOrders} settings={settings} />}
-          {view === "bar" && <BarModule orders={orders} setOrders={setOrders} settings={settings} />}
+          {view === "cocina" && <KDSModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
+          {view === "bar" && <BarModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
           {view === "inventario" && <InventarioModule inventory={inventory} setInventory={setInventory} />}
           {view === "reportes" && <ReportesModule orders={orders} dishes={dishes} setOrders={setOrders} settings={settings} cortes={cortes} />}
           {view === "clientes" && <ClientesModule customers={customers} setCustomers={setCustomers} orders={orders} setOrders={setOrders} />}
