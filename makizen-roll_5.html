@@ -1671,6 +1671,7 @@ function seedSettings(){
     kitchenSoundEnabled:true,
     lateOrderMinutes:20,
     employees:[],
+    extras:[],
     loyaltyEnabled:true,
     loyaltyEarnRate:10,
     loyaltyRedeemPoints:100,
@@ -2962,6 +2963,25 @@ function OrderBuilder(props){
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {(settings.extras || []).length > 0 && (
+          <div className="discount-box" style={{marginBottom:14}}>
+            <label style={{display:"block", marginBottom:8, fontWeight:600, fontSize:13}}>+ Agregar extra</label>
+            <div className="discount-toggle">
+              {(settings.extras || []).map(function(ex){
+                return (
+                  <div
+                    key={ex.id}
+                    className="discount-toggle-btn"
+                    onClick={function(){ addToCart({ id: "extra:" + ex.id, name: ex.name, price: Number(ex.price) || 0, station: "cocina" }, []); }}
+                  >
+                    + {ex.name} · {money(Number(ex.price) || 0)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -4923,11 +4943,13 @@ function ConfiguracionModule(props){
   var [editingTable, setEditingTable] = useState(null);
   var [newEmpName, setNewEmpName] = useState("");
   var [newEmpPin, setNewEmpPin] = useState("");
+  var [newExtraName, setNewExtraName] = useState("");
+  var [newExtraPrice, setNewExtraPrice] = useState("");
   var [lastBackupAt, setLastBackupAt] = useState(function(){
     return loadLocal("makizen_last_backup") || null;
   });
   var [openSections, setOpenSections] = useState({
-    restaurante:false, whatsapp:false, backup:false, loyalty:false, empleados:false, mesas:false, sync:false
+    restaurante:false, whatsapp:false, backup:false, loyalty:false, empleados:false, extras:false, mesas:false, sync:false
   });
 
   function toggleSection(key){
@@ -5000,6 +5022,34 @@ function ConfiguracionModule(props){
     if (!(await appConfirm("¿Eliminar este empleado?"))) return;
     var nextEmployees = (form.employees || []).filter(function(e){ return e.id !== id; });
     var next = Object.assign({}, form, { employees: nextEmployees });
+    setForm(next);
+    setSettings(next);
+  }
+
+  async function addExtra(){
+    var name = newExtraName.trim();
+    var price = Number(newExtraPrice);
+    if (!name){
+      await appAlert("Escribe el nombre del extra.");
+      return;
+    }
+    if (!(price >= 0)){
+      await appAlert("Escribe un precio válido (puede ser 0).");
+      return;
+    }
+    var extrasList = form.extras || [];
+    var nextExtras = extrasList.concat([{ id: uid(), name: name, price: price }]);
+    var next = Object.assign({}, form, { extras: nextExtras });
+    setForm(next);
+    setSettings(next);
+    setNewExtraName("");
+    setNewExtraPrice("");
+  }
+
+  async function removeExtra(id){
+    if (!(await appConfirm("¿Eliminar este extra?"))) return;
+    var nextExtras = (form.extras || []).filter(function(ex){ return ex.id !== id; });
+    var next = Object.assign({}, form, { extras: nextExtras });
     setForm(next);
     setSettings(next);
   }
@@ -5271,6 +5321,46 @@ function ConfiguracionModule(props){
           </div>
         </div>
         <button className="btn btn-primary" onClick={addEmployee}>+ Agregar empleado</button>
+        </div>
+        )}
+      </div>
+
+      <div className="config-section">
+        <div className="config-section-header" onClick={function(){ toggleSection("extras"); }}>
+          <h4 style={{margin:0}}>Extras</h4>
+          <span className="config-chevron">{openSections.extras ? "▾" : "▸"}</span>
+        </div>
+        {openSections.extras && (
+        <div className="config-body">
+        <p style={{fontSize:12.5, color:"var(--ink-600)", lineHeight:1.5, margin:"0 0 14px 0"}}>
+          Cosas que no son platillos pero se pueden agregar a cualquier pedido con su propio precio (ej. bolsa extra, palillos extra, salsa extra). Aparecen como una opción rápida al armar la comanda.
+        </p>
+        {(form.extras || []).length === 0 ? (
+          <div className="empty-panel">Todavía no hay extras registrados.</div>
+        ) : (
+          <div className="corte-metodos" style={{marginBottom:14}}>
+            {form.extras.map(function(ex){
+              return (
+                <div className="corte-metodo-row" key={ex.id}>
+                  <span>{ex.name}</span>
+                  <span className="corte-metodo-count">{money(Number(ex.price) || 0)}</span>
+                  <button className="btn btn-danger-ghost" onClick={function(){ removeExtra(ex.id); }}>Eliminar</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="field-row">
+          <div className="field">
+            <label>Nombre</label>
+            <input type="text" value={newExtraName} placeholder="p. ej. Bolsa extra" onChange={function(e){ setNewExtraName(e.target.value); }} />
+          </div>
+          <div className="field">
+            <label>Precio ($)</label>
+            <input type="number" min="0" value={newExtraPrice} placeholder="p. ej. 5" onChange={function(e){ setNewExtraPrice(e.target.value); }} />
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={addExtra}>+ Agregar extra</button>
         </div>
         )}
       </div>
