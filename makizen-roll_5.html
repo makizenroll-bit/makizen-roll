@@ -1372,7 +1372,7 @@ if (SYNC_ENABLED){
       publicada, no una copia vieja guardada en el dispositivo.
    Mientras APP_UPDATE_URL esté vacío, este chequeo simplemente no hace nada
    (no rompe el modo local ni el modo Firebase). */
-var APP_VERSION = "2026-09-12-1";
+var APP_VERSION = "2026-09-12-2";
 var APP_UPDATE_URL = "https://makizenroll-bit.github.io/makizen-roll/version.json";
 
 function useAppUpdateChecker(){
@@ -1526,43 +1526,83 @@ function saveLocal(key, value){
 }
 
 // Hook genérico: mantiene una colección (dishes/orders/tables) sincronizada
-// con Firestore en tiempo real cuando SYNC_ENABLED está activo; si no,
-// usa localStorage como almacenamiento del dispositivo.
-//
-// Antes, cada guardado sobrescribía TODO el arreglo en la nube. Si dos tablets
-// guardaban casi al mismo tiempo (ej. cocina marca "listo" mientras caja cobra
-// otra comanda), la que terminaba de escribir al último borraba por completo
-// los cambios de la otra. Ahora, para colecciones con "id" por registro
-// (comandas, platillos, mesas, clientes, inventario, cortes), el guardado
-// combina los cambios de este dispositivo con lo último que haya en la nube
-// en vez de reemplazar todo el arreglo — así, cambios a REGISTROS DISTINTOS
-// hechos casi al mismo tiempo en tablets distintas ya no se pisan entre sí.
-// (Si dos tablets editan el MISMO registro casi al mismo tiempo, sigue ganando
-// el que termine de guardar último — eso no cambia.)
+// ─── Sync state global: verdadero estado de conexión con Firestore ───────────
+var _firestoreSynced = false;
+var _firestoreSyncListeners = [];
+function _setFirestoreSynced(val){
+  if (_firestoreSynced === val) return;
+  _firestoreSynced = val;
+  _firestoreSyncListeners.forEach(function(fn){ try{ fn(val); }catch(e){} });
+}
+function useFirestoreSyncStatus(){
+  var [synced, setSynced] = useState(_firestoreSynced);
+  useEffect(function(){
+    _firestoreSyncListeners.push(setSynced);
+    setSynced(_firestoreSynced);
+    return function(){
+      _firestoreSyncListeners = _firestoreSyncListeners.filter(function(f){ return f !== setSynced; });
+    };
+  }, []);
+  return synced;
+}
+
+// Escucha el evento global de sincronización de Firestore (todos los listeners al día)
+if (SYNC_ENABLED){
+  db.onSnapshotsInSync(function(){
+    _setFirestoreSynced(true);
+  });
+}
+
 function useSyncedCollection(key, seedFn){
   var local = loadLocal(key);
   var initial = local !== null ? local : (seedFn ? seedFn() : []);
   var [data, setDataRaw] = useState(initial);
   var [synced, setSynced] = useState(false);
   var dataRef = useRef(initial);
+  var unsubRef = useRef(null);
+  var retryTimerRef = useRef(null);
 
-  useEffect(function(){
+  function subscribe(){
     if (!SYNC_ENABLED) return;
     var ref = db.collection("makizen_rolo").doc(key);
-    var unsub = ref.onSnapshot(function(snap){
-      if (snap.exists && snap.data().list){
-        dataRef.current = snap.data().list;
-        setDataRaw(snap.data().list);
-        saveLocal(key, snap.data().list);
-      } else {
-        var seeded = local !== null ? local : (seedFn ? seedFn() : []);
-        ref.set({ list: seeded });
+    var unsub = ref.onSnapshot(
+      { includeMetadataChanges: false },
+      function(snap){
+        if (snap.exists && snap.data().list){
+          var list = snap.data().list;
+          dataRef.current = list;
+          setDataRaw(list);
+          saveLocal(key, list);
+        } else {
+          var seeded = local !== null ? local : (seedFn ? seedFn() : []);
+          ref.set({ list: seeded }).catch(function(e){
+            console.error("Init " + key + ":", e);
+          });
+        }
+        setSynced(true);
+        _setFirestoreSynced(true);
+        if (retryTimerRef.current){ clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+      },
+      function(err){
+        console.error("Firestore (" + key + "):", err.code, err.message);
+        _setFirestoreSynced(false);
+        setSynced(false);
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(function(){
+          if (unsubRef.current){ try{ unsubRef.current(); }catch(e){} }
+          subscribe();
+        }, 5000);
       }
-      setSynced(true);
-    }, function(err){
-      console.error("Firestore (" + key + "):", err);
-    });
-    return function(){ unsub(); };
+    );
+    unsubRef.current = unsub;
+  }
+
+  useEffect(function(){
+    subscribe();
+    return function(){
+      if (unsubRef.current){ try{ unsubRef.current(); }catch(e){} }
+      if (retryTimerRef.current){ clearTimeout(retryTimerRef.current); }
+    };
     // eslint-disable-next-line
   }, []);
 
@@ -1589,21 +1629,22 @@ function useSyncedCollection(key, seedFn){
       });
       var removedIds = Object.keys(prevById).filter(function(id){ return !nextById[id]; });
 
-      ref.get().then(function(snap){
-        var remoteList = (snap.exists && snap.data().list) ? snap.data().list : [];
-        var remoteById = {};
-        remoteList.forEach(function(item){ if (item && item.id !== undefined) remoteById[item.id] = item; });
-        changedIds.forEach(function(id){ remoteById[id] = nextById[id]; });
-        removedIds.forEach(function(id){ delete remoteById[id]; });
-        var merged = Object.keys(remoteById).map(function(id){ return remoteById[id]; });
-        return ref.set({ list: merged }).then(function(){ return merged; });
-      }).then(function(merged){
-        if (!merged) return;
-        dataRef.current = merged;
-        setDataRaw(merged);
-        saveLocal(key, merged);
+      db.runTransaction(function(tx){
+        return tx.get(ref).then(function(snap){
+          var remoteList = (snap.exists && snap.data().list) ? snap.data().list : [];
+          var remoteById = {};
+          remoteList.forEach(function(item){ if (item && item.id !== undefined) remoteById[item.id] = item; });
+          changedIds.forEach(function(id){ remoteById[id] = nextById[id]; });
+          removedIds.forEach(function(id){ delete remoteById[id]; });
+          var merged = Object.values(remoteById);
+          tx.set(ref, { list: merged });
+          return merged;
+        });
       }).catch(function(e){
-        console.error("Error guardando " + key + ":", e);
+        console.error("Transaccion " + key + ":", e);
+        ref.set({ list: next }).catch(function(e2){
+          console.error("Fallback " + key + ":", e2);
+        });
       });
     } else {
       ref.set({ list: next }).catch(function(e){
@@ -5683,6 +5724,7 @@ function StationKiosk(props){ var dishes = props.dishes;
 
 function AppInner(){
   var isOnline = useOnlineStatus();
+  var isFirestoreSynced = useFirestoreSyncStatus();
   var fullscreenState = useFullscreen();
   var isFullscreen = fullscreenState[0], toggleFullscreen = fullscreenState[1];
 
@@ -5875,8 +5917,8 @@ function AppInner(){
             <button className="fullscreen-btn" onClick={toggleFullscreen}>
               {isFullscreen ? "⤡ Salir de pantalla completa" : "⤢ Pantalla completa"}
             </button>
-            <div className={"sync-badge" + (!SYNC_ENABLED ? " off" : (isOnline ? " on" : " offline"))}>
-              {!SYNC_ENABLED ? "💻 Modo local" : (isOnline ? "☁ Sincronizado" : "📴 Sin conexión · guardando local")}
+            <div className={"sync-badge" + (!SYNC_ENABLED ? " off" : (isFirestoreSynced ? " on" : (isOnline ? " on" : " offline")))}>
+              {!SYNC_ENABLED ? "💻 Modo local" : (isFirestoreSynced ? "☁ Sincronizado" : (isOnline ? "⏳ Conectando..." : "📴 Sin conexión · guardando local"))}
             </div>
           </div>
         </div>
