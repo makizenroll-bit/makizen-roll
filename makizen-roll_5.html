@@ -11,7 +11,7 @@
 <link rel="manifest" href="./manifest.json" />
 <meta name="theme-color" content="#14100C" />
 <meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />h
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Makizen Roll" />
 <link rel="apple-touch-icon" href="./icon-192.png" />
@@ -1372,7 +1372,7 @@ if (SYNC_ENABLED){
       publicada, no una copia vieja guardada en el dispositivo.
    Mientras APP_UPDATE_URL esté vacío, este chequeo simplemente no hace nada
    (no rompe el modo local ni el modo Firebase). */
-var APP_VERSION = "2026-08-11-2";
+var APP_VERSION = "2026-09-12-1";
 var APP_UPDATE_URL = "https://makizenroll-bit.github.io/makizen-roll/version.json";
 
 function useAppUpdateChecker(){
@@ -1400,6 +1400,24 @@ function useAppUpdateChecker(){
 
   return updateAvailable;
 }
+
+     // Limpia el caché del Service Worker y recarga para obtener la versión nueva.
+     function doAppUpdate(){
+            if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+                     navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
+            }
+            if ("caches" in window) {
+                     caches.keys().then(function(keys){
+                                return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+                     }).then(function(){
+                                window.location.reload();
+                     }).catch(function(){
+                                window.location.reload();
+                     });
+            } else {
+                     window.location.reload();
+            }
+     }
 
 function useOnlineStatus(){
   var [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -5924,7 +5942,7 @@ function App(){
           <span>🔄 Hay una versión nueva del sistema</span>
           <button
             type="button"
-            onClick={function(){ window.location.reload(); }}
+            onClick={function(){ doAppUpdate(); }}
             style={{background:"#fff", color:"#14100C", border:"none", borderRadius:999, padding:"7px 16px", fontWeight:700, cursor:"pointer", fontSize:13}}
           >
             Actualizar ahora
