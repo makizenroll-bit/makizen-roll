@@ -13,67 +13,80 @@
 // - Otros archivos propios (manifest, íconos): caché primero, y se
 //   actualizan solos en segundo plano cuando hay internet.
 
-var CACHE_NAME = "makizen-shell-v1";
+var CACHE_NAME = "makizen-shell-v2";
 
 self.addEventListener("install", function (event) {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(function (cache) {
-      return cache.addAll(["./", "./manifest.json", "./icon-192.png", "./icon-512.png"]).catch(function () {
-        // Si algún archivo no existe todavía (ej. primera vez), no truena la instalación.
-      });
-    })
-  );
-  self.skipWaiting();
+    event.waitUntil(
+          caches.open(CACHE_NAME).then(function (cache) {
+                  return cache.addAll(["./", "./manifest.json", "./icon-192.png", "./icon-512.png"]).catch(function () {
+                            // Si algún archivo no existe todavía (ej. primera vez), no truena la instalación.
+                    });
+          })
+        );
+    // Activa este SW inmediatamente sin esperar a que el usuario cierre pestañas
+                        self.skipWaiting();
 });
 
 self.addEventListener("activate", function (event) {
-  event.waitUntil(
-    caches.keys().then(function (keys) {
-      return Promise.all(
-        keys.filter(function (k) { return k !== CACHE_NAME; }).map(function (k) { return caches.delete(k); })
-      );
-    })
-  );
-  self.clients.claim();
+    event.waitUntil(
+          caches.keys().then(function (keys) {
+                  return Promise.all(
+                            keys.filter(function (k) { return k !== CACHE_NAME; }).map(function (k) { return caches.delete(k); })
+                          );
+          }).then(function () {
+                  // Toma control de todas las pestañas abiertas inmediatamente
+                        return self.clients.claim();
+          })
+        );
 });
 
 self.addEventListener("fetch", function (event) {
-  var req = event.request;
-  if (req.method !== "GET") return;
+    var req = event.request;
+    if (req.method !== "GET") return;
 
-  var url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // recursos externos: sin tocar
+                        var url = new URL(req.url);
+    if (url.origin !== self.location.origin) return; // recursos externos: sin tocar
 
-  if (url.pathname.indexOf("version.json") !== -1) {
-    event.respondWith(fetch(req).catch(function () { return caches.match(req); }));
-    return;
-  }
+                        // version.json: siempre red, nunca caché
+                        if (url.pathname.indexOf("version.json") !== -1) {
+                              event.respondWith(fetch(req).catch(function () { return caches.match(req); }));
+                              return;
+                        }
 
-  if (req.mode === "navigate") {
-    event.respondWith(
-      fetch(req)
-        .then(function (res) {
-          var copy = res.clone();
-          caches.open(CACHE_NAME).then(function (cache) { cache.put(req, copy); });
-          return res;
-        })
-        .catch(function () { return caches.match(req); })
-    );
-    return;
-  }
+                        // HTML principal: red primero, caché como fallback offline
+                        if (req.mode === "navigate") {
+                              event.respondWith(
+                                      fetch(req)
+                                        .then(function (res) {
+                                                    var copy = res.clone();
+                                                    caches.open(CACHE_NAME).then(function (cache) { cache.put(req, copy); });
+                                                    return res;
+                                        })
+                                        .catch(function () { return caches.match(req); })
+                                    );
+                              return;
+                        }
 
-  event.respondWith(
-    caches.match(req).then(function (cached) {
-      var fetchPromise = fetch(req)
-        .then(function (res) {
-          if (res && res.status === 200) {
-            var copy = res.clone();
-            caches.open(CACHE_NAME).then(function (cache) { cache.put(req, copy); });
-          }
-          return res;
-        })
-        .catch(function () { return cached; });
-      return cached || fetchPromise;
-    })
-  );
+                        // Resto: caché primero, actualiza en segundo plano (stale-while-revalidate)
+                        event.respondWith(
+                              caches.match(req).then(function (cached) {
+                                      var fetchPromise = fetch(req)
+                                        .then(function (res) {
+                                                    if (res && res.status === 200) {
+                                                                  var copy = res.clone();
+                                                                  caches.open(CACHE_NAME).then(function (cache) { cache.put(req, copy); });
+                                                    }
+                                                    return res;
+                                        })
+                                        .catch(function () { return cached; });
+                                      return cached || fetchPromise;
+                              })
+                            );
+});
+
+// Escucha el mensaje SKIP_WAITING enviado desde la app para forzar actualización
+self.addEventListener("message", function (event) {
+    if (event.data && event.data.type === "SKIP_WAITING") {
+          self.skipWaiting();
+    }
 });
