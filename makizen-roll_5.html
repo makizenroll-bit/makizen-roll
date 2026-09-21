@@ -1695,6 +1695,7 @@ function seedCategories(){
 }
 var ORDER_TYPES = ["Mesa", "Para llevar", "Domicilio"];
 var PAYMENT_METHODS = ["Efectivo", "Tarjeta", "Transferencia"];
+var GASTO_CATEGORIES = ["Ingredientes", "Servicios", "Renta", "Empleados", "Otros"];
 
 function seedTables(){
   return [
@@ -2093,6 +2094,29 @@ function dayLabel(iso){
   var d = new Date(iso);
   var label = d.toLocaleDateString("es-MX", { weekday:"long", day:"2-digit", month:"long" });
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function weekKey(iso){
+  var d = new Date(iso);
+  d.setHours(0,0,0,0);
+  var day = d.getDay();
+  var diff = (day === 0 ? -6 : 1) - day;
+  var monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  return monday.getFullYear() + "-" + String(monday.getMonth()+1).padStart(2,"0") + "-" + String(monday.getDate()).padStart(2,"0");
+}
+
+function weekLabel(iso){
+  var d = new Date(iso);
+  d.setHours(0,0,0,0);
+  var day = d.getDay();
+  var diff = (day === 0 ? -6 : 1) - day;
+  var monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  var sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  var fmt = function(dd){ return dd.toLocaleDateString("es-MX", { day:"2-digit", month:"short" }); };
+  return "Semana del " + fmt(monday) + " al " + fmt(sunday);
 }
 
 function elapsedLabel(mins){
@@ -3675,9 +3699,16 @@ function SalesHistoryByDay(props){
   var [expandedId, setExpandedId] = useState(null);
   var [pinPrompt, setPinPrompt] = useState(null);
   var [openDayKeys, setOpenDayKeys] = useState(null);
+  var [viewMode, setViewMode] = useState("dia");
 
   function requestPin(actionLabel, masterPin, onSuccess){
     setPinPrompt({ actionLabel: actionLabel, masterPin: masterPin, onSuccess: onSuccess });
+  }
+
+  function switchViewMode(mode){
+    if (mode === viewMode) return;
+    setViewMode(mode);
+    setOpenDayKeys(null);
   }
 
   async function deleteOrder(order){
@@ -3690,11 +3721,13 @@ function SalesHistoryByDay(props){
     });
   }
 
+  var groupKeyFn = viewMode === "semana" ? weekKey : dayKey;
+  var groupLabelFn = viewMode === "semana" ? weekLabel : dayLabel;
   var groups = [];
   var byKey = {};
   list.forEach(function(o){
     var when = o.paidAt || o.createdAt;
-    var key = dayKey(when);
+    var key = groupKeyFn(when);
     if (!byKey[key]){
       byKey[key] = { key:key, when:when, orders:[], total:0, count:0 };
       groups.push(byKey[key]);
@@ -3715,11 +3748,15 @@ function SalesHistoryByDay(props){
 
   return (
     <div>
+      <div className="cat-tabs" style={{marginBottom:12}}>
+        <div className={"cat-tab" + (viewMode === "dia" ? " active" : "")} onClick={function(){ switchViewMode("dia"); }}>Por día</div>
+        <div className={"cat-tab" + (viewMode === "semana" ? " active" : "")} onClick={function(){ switchViewMode("semana"); }}>Por semana</div>
+      </div>
       {groups.map(function(g){
         return (
           <div className="day-group" key={g.key}>
             <div className="day-group-header" style={{cursor:"pointer"}} onClick={function(){ toggleDay(g.key); }}>
-              <div className="day-group-title">{dayLabel(g.when)}</div>
+              <div className="day-group-title">{groupLabelFn(g.when)}</div>
               <div className="day-group-stats">{g.count} venta{g.count !== 1 ? "s" : ""} · <strong>{money(g.total)}</strong> <span className="config-chevron">{effectiveOpenKeys.indexOf(g.key) !== -1 ? "▾" : "▸"}</span></div>
             </div>
             {effectiveOpenKeys.indexOf(g.key) !== -1 && (
@@ -3838,6 +3875,8 @@ function CajaModule(props){
   var customers = props.customers || [];
   var setCustomers = props.setCustomers;
   var currentEmployeeName = props.currentEmployeeName || "";
+  var gastos = props.gastos || [];
+  var setGastos = props.setGastos;
 
   var [tab, setTab] = useState("cobrar");
   var [charging, setCharging] = useState(null);
@@ -3851,10 +3890,84 @@ function CajaModule(props){
   var [includeCanceladas, setIncludeCanceladas] = useState(false);
   var [includeEliminadas, setIncludeEliminadas] = useState(false);
   var [pinPrompt, setPinPrompt] = useState(null);
+  var [gastoRange, setGastoRange] = useState("hoy");
+  var [gastoDate, setGastoDate] = useState(function(){ return new Date().toISOString().slice(0,10); });
+  var [gastoDesc, setGastoDesc] = useState("");
+  var [gastoCategory, setGastoCategory] = useState(GASTO_CATEGORIES[0]);
+  var [gastoAmount, setGastoAmount] = useState("");
+  var [editingGastoId, setEditingGastoId] = useState(null);
 
   function requestPin(actionLabel, masterPin, onSuccess){
     setPinPrompt({ actionLabel: actionLabel, masterPin: masterPin, onSuccess: onSuccess });
   }
+
+  async function saveGasto(){
+    var desc = gastoDesc.trim();
+    var amount = Number(gastoAmount);
+    if (!desc){
+      await appAlert("Escribe una descripción del gasto.");
+      return;
+    }
+    if (!(amount > 0)){
+      await appAlert("Escribe un monto válido (mayor a 0).");
+      return;
+    }
+    var dateIso = gastoDate ? new Date(gastoDate + "T12:00:00").toISOString() : new Date().toISOString();
+    if (editingGastoId){
+      setGastos(gastos.map(function(g){
+        return g.id === editingGastoId ? Object.assign({}, g, { date: dateIso, description: desc, category: gastoCategory, amount: amount }) : g;
+      }));
+    } else {
+      setGastos(gastos.concat([{ id: uid(), date: dateIso, description: desc, category: gastoCategory, amount: amount, createdBy: currentEmployeeName || "" }]));
+    }
+    setGastoDesc("");
+    setGastoAmount("");
+    setGastoCategory(GASTO_CATEGORIES[0]);
+    setGastoDate(new Date().toISOString().slice(0,10));
+    setEditingGastoId(null);
+  }
+
+  function editGasto(g){
+    setEditingGastoId(g.id);
+    setGastoDate(new Date(g.date).toISOString().slice(0,10));
+    setGastoDesc(g.description);
+    setGastoCategory(g.category || GASTO_CATEGORIES[0]);
+    setGastoAmount(String(g.amount));
+  }
+
+  function cancelEditGasto(){
+    setEditingGastoId(null);
+    setGastoDesc("");
+    setGastoAmount("");
+    setGastoCategory(GASTO_CATEGORIES[0]);
+    setGastoDate(new Date().toISOString().slice(0,10));
+  }
+
+  async function removeGasto(id){
+    if (!(await appConfirm("¿Eliminar este gasto?"))) return;
+    setGastos(gastos.filter(function(g){ return g.id !== id; }));
+  }
+
+  function gastoRangeStart(){
+    var d = new Date();
+    if (gastoRange === "hoy"){ d.setHours(0,0,0,0); return d; }
+    if (gastoRange === "semana"){
+      var day = d.getDay();
+      var diff = (day === 0 ? -6 : 1) - day;
+      d.setDate(d.getDate() + diff);
+      d.setHours(0,0,0,0);
+      return d;
+    }
+    if (gastoRange === "mes"){ d.setDate(1); d.setHours(0,0,0,0); return d; }
+    return null;
+  }
+
+  var gastoRangeStartDate = gastoRangeStart();
+  var gastosEnRango = gastos.filter(function(g){ return !gastoRangeStartDate || new Date(g.date) >= gastoRangeStartDate; });
+  var ventasEnRangoGastos = orders.filter(function(o){ return o.status === "pagada" && (!gastoRangeStartDate || new Date(o.paidAt || o.createdAt) >= gastoRangeStartDate); });
+  var totalGastosRango = gastosEnRango.reduce(function(s,g){ return s + (Number(g.amount) || 0); }, 0);
+  var totalVentasRangoGastos = ventasEnRangoGastos.reduce(function(s,o){ return s + orderTotal(o); }, 0);
+  var gananciaRango = totalVentasRangoGastos - totalGastosRango;
 
   var porCobrar = orders.filter(function(o){ return o.status === "en_cocina" || o.status === "listo"; })
     .slice().sort(function(a,b){ return new Date(a.createdAt) - new Date(b.createdAt); });
@@ -4059,6 +4172,7 @@ function CajaModule(props){
         <div className={"cat-tab" + (tab === "cobrar" ? " active" : "")} onClick={function(){ setTab("cobrar"); }}>Por cobrar ({porCobrar.length})</div>
         <div className={"cat-tab" + (tab === "corte" ? " active" : "")} onClick={function(){ setTab("corte"); }}>Corte del día</div>
         <div className={"cat-tab" + (tab === "historial" ? " active" : "")} onClick={function(){ setTab("historial"); }}>Historial de ventas</div>
+        <div className={"cat-tab" + (tab === "gastos" ? " active" : "")} onClick={function(){ setTab("gastos"); }}>Gastos</div>
         <div className={"cat-tab" + (tab === "papelera" ? " active" : "")} onClick={function(){ setTab("papelera"); }}>🗑 Papelera ({todasEliminadas.length})</div>
       </div>
 
@@ -4250,6 +4364,88 @@ function CajaModule(props){
           ) : (
             <SalesHistoryByDay list={historyList} setOrders={setOrders} allOrders={orders} settings={settings} />
           )}
+        </div>
+      )}
+
+      {tab === "gastos" && (
+        <div>
+          <div className="cat-tabs">
+            <div className={"cat-tab" + (gastoRange === "hoy" ? " active" : "")} onClick={function(){ setGastoRange("hoy"); }}>Hoy</div>
+            <div className={"cat-tab" + (gastoRange === "semana" ? " active" : "")} onClick={function(){ setGastoRange("semana"); }}>Esta semana</div>
+            <div className={"cat-tab" + (gastoRange === "mes" ? " active" : "")} onClick={function(){ setGastoRange("mes"); }}>Este mes</div>
+            <div className={"cat-tab" + (gastoRange === "todo" ? " active" : "")} onClick={function(){ setGastoRange("todo"); }}>Todo</div>
+          </div>
+
+          <div className="stat-grid">
+            <div className="stat-card">
+              <div className="stat-label">Ventas</div>
+              <div className="stat-value accent">{money(totalVentasRangoGastos)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Gastos</div>
+              <div className="stat-value">{money(totalGastosRango)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Ganancia</div>
+              <div className="stat-value" style={{color: gananciaRango >= 0 ? "var(--wasabi-600)" : "var(--umeboshi-500)"}}>{money(gananciaRango)}</div>
+            </div>
+          </div>
+
+          <div className="sales-toolbar">
+            <div style={{flex:1, fontSize:12.5, color:"var(--ink-600)"}}>{gastos.length} gasto{gastos.length !== 1 ? "s" : ""} registrado{gastos.length !== 1 ? "s" : ""} en total</div>
+          </div>
+
+          {gastos.length === 0 ? (
+            <div className="empty-panel">
+              <p style={{fontWeight:600}}>Todavía no hay gastos registrados</p>
+              <p style={{fontSize:12.5, marginTop:4}}>Registra aquí lo que compres (ingredientes, servicios, etc.) para llevar el control junto con las ventas.</p>
+            </div>
+          ) : (
+            <div className="corte-metodos" style={{marginBottom:14}}>
+              {gastos.slice().sort(function(a,b){ return new Date(b.date) - new Date(a.date); }).map(function(g){
+                return (
+                  <div className="corte-metodo-row" key={g.id}>
+                    <span>{new Date(g.date).toLocaleDateString("es-MX", { day:"2-digit", month:"short", year:"numeric" })}</span>
+                    <span>{g.description}{g.category ? " · " + g.category : ""}</span>
+                    <span className="corte-metodo-count">{money(Number(g.amount) || 0)}</span>
+                    <div style={{display:"flex", gap:8}}>
+                      <button className="btn btn-ghost" onClick={function(){ editGasto(g); }}>Editar</button>
+                      <button className="btn btn-danger-ghost" onClick={function(){ removeGasto(g.id); }}>Eliminar</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="field-row">
+            <div className="field">
+              <label>Fecha</label>
+              <input type="date" value={gastoDate} onChange={function(e){ setGastoDate(e.target.value); }} />
+            </div>
+            <div className="field">
+              <label>Categoría</label>
+              <select value={gastoCategory} onChange={function(e){ setGastoCategory(e.target.value); }}>
+                {GASTO_CATEGORIES.map(function(c){ return <option key={c} value={c}>{c}</option>; })}
+              </select>
+            </div>
+          </div>
+          <div className="field-row">
+            <div className="field">
+              <label>Descripción</label>
+              <input type="text" value={gastoDesc} placeholder="p. ej. Compra de pescado" onChange={function(e){ setGastoDesc(e.target.value); }} />
+            </div>
+            <div className="field">
+              <label>Monto ($)</label>
+              <input type="number" min="0" value={gastoAmount} placeholder="p. ej. 850" onChange={function(e){ setGastoAmount(e.target.value); }} />
+            </div>
+          </div>
+          <div style={{display:"flex", gap:10, alignItems:"center"}}>
+            <button className="btn btn-primary" onClick={saveGasto}>{editingGastoId ? "Guardar cambios" : "+ Agregar gasto"}</button>
+            {editingGastoId && (
+              <button className="btn btn-ghost" onClick={cancelEditGasto}>Cancelar</button>
+            )}
+          </div>
         </div>
       )}
 
@@ -5754,6 +5950,9 @@ function AppInner(){
   var cortesTriplet = useSyncedCollection("cortes", function(){ return []; });
   var cortes = cortesTriplet[0], setCortes = cortesTriplet[1];
 
+  var gastosTriplet = useSyncedCollection("gastos", function(){ return []; });
+  var gastos = gastosTriplet[0], setGastos = gastosTriplet[1];
+
   var [view, setView] = useState("dashboard");
   var [cajaFocusId, setCajaFocusId] = useState(null);
   var [configUnlocked, setConfigUnlocked] = useState(false);
@@ -5927,7 +6126,7 @@ function AppInner(){
           {view === "menu" && <MenuModule dishes={dishes} setDishes={setDishes} categories={categories} setCategories={setCategories} />}
           {view === "mesas" && <MesasModule dishes={dishes} orders={orders} setOrders={setOrders} tables={tables} onCobrar={goToCaja} categories={categories} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
           {view === "pos" && <ComandasModule dishes={dishes} orders={orders} setOrders={setOrders} customers={customers} setCustomers={setCustomers} categories={categories} tables={tables} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
-          {view === "caja" && <CajaModule orders={orders} setOrders={setOrders} focusOrderId={cajaFocusId} clearFocus={function(){ setCajaFocusId(null); }} settings={settings} cortes={cortes} setCortes={setCortes} customers={customers} setCustomers={setCustomers} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
+          {view === "caja" && <CajaModule orders={orders} setOrders={setOrders} focusOrderId={cajaFocusId} clearFocus={function(){ setCajaFocusId(null); }} settings={settings} cortes={cortes} setCortes={setCortes} customers={customers} setCustomers={setCustomers} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} gastos={gastos} setGastos={setGastos} />}
           {view === "cocina" && <KDSModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
           {view === "bar" && <BarModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
           {view === "inventario" && <InventarioModule inventory={inventory} setInventory={setInventory} />}
