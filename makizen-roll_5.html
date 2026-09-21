@@ -1372,7 +1372,7 @@ if (SYNC_ENABLED){
       publicada, no una copia vieja guardada en el dispositivo.
    Mientras APP_UPDATE_URL esté vacío, este chequeo simplemente no hace nada
    (no rompe el modo local ni el modo Firebase). */
-var APP_VERSION = "2026-09-21-2";
+var APP_VERSION = "2026-09-21-3";
 var APP_UPDATE_URL = "https://makizenroll-bit.github.io/makizen-roll/version.json";
 
 function useAppUpdateChecker(){
@@ -4244,17 +4244,25 @@ function CajaModule(props){
 
   var historial = cortes.slice().sort(function(a,b){ return new Date(b.closedAt) - new Date(a.closedAt); }).slice(0, 10);
 
+  var restricted = props.restricted;
+  var CAJA_HIDDEN_TABS_FOR_RESTRICTED = ["historial", "papelera"];
+  var effectiveTab = (restricted && CAJA_HIDDEN_TABS_FOR_RESTRICTED.indexOf(tab) !== -1) ? "cobrar" : tab;
+
   return (
     <div>
       <div className="cat-tabs">
-        <div className={"cat-tab" + (tab === "cobrar" ? " active" : "")} onClick={function(){ setTab("cobrar"); }}>Por cobrar ({porCobrar.length})</div>
-        <div className={"cat-tab" + (tab === "corte" ? " active" : "")} onClick={function(){ setTab("corte"); }}>Corte del día</div>
-        <div className={"cat-tab" + (tab === "historial" ? " active" : "")} onClick={function(){ setTab("historial"); }}>Historial de ventas</div>
-        <div className={"cat-tab" + (tab === "gastos" ? " active" : "")} onClick={function(){ setTab("gastos"); }}>Gastos</div>
-        <div className={"cat-tab" + (tab === "papelera" ? " active" : "")} onClick={function(){ setTab("papelera"); }}>🗑 Papelera ({todasEliminadas.length})</div>
+        <div className={"cat-tab" + (effectiveTab === "cobrar" ? " active" : "")} onClick={function(){ setTab("cobrar"); }}>Por cobrar ({porCobrar.length})</div>
+        <div className={"cat-tab" + (effectiveTab === "corte" ? " active" : "")} onClick={function(){ setTab("corte"); }}>Corte del día</div>
+        {!restricted && (
+          <div className={"cat-tab" + (effectiveTab === "historial" ? " active" : "")} onClick={function(){ setTab("historial"); }}>Historial de ventas</div>
+        )}
+        <div className={"cat-tab" + (effectiveTab === "gastos" ? " active" : "")} onClick={function(){ setTab("gastos"); }}>Gastos</div>
+        {!restricted && (
+          <div className={"cat-tab" + (effectiveTab === "papelera" ? " active" : "")} onClick={function(){ setTab("papelera"); }}>🗑 Papelera ({todasEliminadas.length})</div>
+        )}
       </div>
 
-      {tab === "cobrar" && (
+      {effectiveTab === "cobrar" && (
         porCobrar.length === 0 ? (
           <div className="empty-panel">
             <p style={{fontWeight:600}}>No hay comandas pendientes de cobro</p>
@@ -4290,7 +4298,7 @@ function CajaModule(props){
         )
       )}
 
-      {tab === "corte" && (
+      {effectiveTab === "corte" && (
         <div>
           <div className="toolbar" style={{marginBottom:14}}>
             <div style={{flex:1, fontSize:12.5, color:"var(--ink-600)"}}>
@@ -4356,7 +4364,7 @@ function CajaModule(props){
         </div>
       )}
 
-      {tab === "papelera" && (
+      {!restricted && effectiveTab === "papelera" && (
         <div>
           <div className="sales-toolbar">
             <div style={{flex:1, fontSize:12.5, color:"var(--ink-600)"}}>{todasEliminadas.length} comanda{todasEliminadas.length !== 1 ? "s" : ""} eliminada{todasEliminadas.length !== 1 ? "s" : ""}</div>
@@ -4413,7 +4421,7 @@ function CajaModule(props){
         </div>
       )}
 
-      {tab === "historial" && (
+      {!restricted && effectiveTab === "historial" && (
         <div>
           <div className="sales-toolbar">
             <div style={{flex:1, fontSize:12.5, color:"var(--ink-600)"}}>{historyList.length} venta{historyList.length !== 1 ? "s" : ""} en total</div>
@@ -4445,7 +4453,7 @@ function CajaModule(props){
         </div>
       )}
 
-      {tab === "gastos" && (
+      {effectiveTab === "gastos" && (
         <div>
           <div className="cat-tabs">
             <div className={"cat-tab" + (gastoRange === "hoy" ? " active" : "")} onClick={function(){ setGastoRange("hoy"); }}>Hoy</div>
@@ -6209,7 +6217,7 @@ function AppInner(){
           {effectiveView === "menu" && <MenuModule dishes={dishes} setDishes={setDishes} categories={categories} setCategories={setCategories} />}
           {effectiveView === "mesas" && <MesasModule dishes={dishes} orders={orders} setOrders={setOrders} tables={tables} onCobrar={goToCaja} categories={categories} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
           {effectiveView === "pos" && <ComandasModule dishes={dishes} orders={orders} setOrders={setOrders} customers={customers} setCustomers={setCustomers} categories={categories} tables={tables} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
-          {effectiveView === "caja" && <CajaModule orders={orders} setOrders={setOrders} focusOrderId={cajaFocusId} clearFocus={function(){ setCajaFocusId(null); }} settings={settings} cortes={cortes} setCortes={setCortes} customers={customers} setCustomers={setCustomers} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} gastos={gastos} setGastos={setGastos} />}
+          {effectiveView === "caja" && <CajaModule orders={orders} setOrders={setOrders} focusOrderId={cajaFocusId} clearFocus={function(){ setCajaFocusId(null); }} settings={settings} cortes={cortes} setCortes={setCortes} customers={customers} setCustomers={setCustomers} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} gastos={gastos} setGastos={setGastos} restricted={isRestrictedEmployee} />}
           {effectiveView === "cocina" && <KDSModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
           {effectiveView === "bar" && <BarModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
           {!isRestrictedEmployee && effectiveView === "inventario" && <InventarioModule inventory={inventory} setInventory={setInventory} />}
