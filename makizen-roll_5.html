@@ -2684,6 +2684,9 @@ function OrderBuilder(props){
   var onCancel = props.onCancel;
   var onAppend = props.onAppend || null;
   var appendMode = !!props.onAppend;
+  var editingOrder = props.editingOrder || null;
+  var onSaveEdit = props.onSaveEdit || null;
+  var editMode = !!editingOrder;
   var lockOrderType = props.lockOrderType || null;
   var presetTableNumber = props.presetTableNumber || "";
   var linkedTableId = props.tableId || null;
@@ -2712,12 +2715,14 @@ function OrderBuilder(props){
   var [customerAddress, setCustomerAddress] = useState("");
   var [activeCat, setActiveCat] = useState(categories[0] || "");
   var [search, setSearch] = useState("");
-  var [cart, setCart] = useState([]);
+  var [cart, setCart] = useState(function(){
+    return editingOrder ? editingOrder.items.map(function(it){ return Object.assign({}, it, { modifiers: (it.modifiers || []).slice() }); }) : [];
+  });
   var [pickerDish, setPickerDish] = useState(null);
   var [pickerMods, setPickerMods] = useState([]);
-  var [discountType, setDiscountType] = useState("none");
-  var [discountValue, setDiscountValue] = useState("");
-  var [discountLabel, setDiscountLabel] = useState("");
+  var [discountType, setDiscountType] = useState(function(){ return editingOrder && Number(editingOrder.discountAmount) > 0 ? "fixed" : "none"; });
+  var [discountValue, setDiscountValue] = useState(function(){ return editingOrder && Number(editingOrder.discountAmount) > 0 ? String(editingOrder.discountAmount) : ""; });
+  var [discountLabel, setDiscountLabel] = useState(function(){ return editingOrder ? (editingOrder.discountLabel || "") : ""; });
 
   var activeDishes = dishes.filter(function(d){ return d.active; });
   var filtered = activeDishes.filter(function(d){
@@ -2822,7 +2827,7 @@ function OrderBuilder(props){
     var modsTotal = item.modifiers.reduce(function(s, m){ return s + Number(m.price); }, 0);
     return sum + (Number(item.price) + modsTotal) * item.qty;
   }, 0);
-  var deliveryFee = orderType === "Domicilio" ? deliveryFeeAmount : 0;
+  var deliveryFee = editMode ? (Number(editingOrder.deliveryFee) || 0) : (orderType === "Domicilio" ? deliveryFeeAmount : 0);
 
   function cheapestCartUnit(){
     var cheapest = null;
@@ -2853,6 +2858,7 @@ function OrderBuilder(props){
 
   function canSend(){
     if (cart.length === 0) return false;
+    if (editMode) return true;
     if (orderType === "Mesa" && !tableNumber.trim()) return false;
     if (orderType === "Para llevar" && !customerName.trim()) return false;
     if (orderType === "Domicilio" && (!customerName.trim() || !customerAddress.trim())) return false;
@@ -2861,6 +2867,10 @@ function OrderBuilder(props){
 
   function handleSend(){
     if (!canSend()) return;
+    if (editMode){
+      onSaveEdit(cart);
+      return;
+    }
     if (appendMode){
       onAppend(cart);
       return;
@@ -2944,7 +2954,7 @@ function OrderBuilder(props){
       </div>
 
       <div className="pos-cart">
-        <h3>Comanda nueva</h3>
+        <h3>{editMode ? "Editar comanda" : (appendMode ? "Agregar a la comanda" : "Comanda nueva")}</h3>
 
         <div className="type-selector">
           {ORDER_TYPES.map(function(t){
@@ -2958,7 +2968,7 @@ function OrderBuilder(props){
           })}
         </div>
 
-        {orderType === "Mesa" ? (
+        {!editMode && (orderType === "Mesa" ? (
           presetTableNumber ? (
             <div className="field">
               <label>Mesa</label>
@@ -3013,7 +3023,7 @@ function OrderBuilder(props){
               </div>
             )}
           </div>
-        )}
+        ))}
 
         {cart.length === 0 ? (
           <div className="cart-empty">Agrega platillos del menú para armar la comanda.</div>
@@ -3137,7 +3147,7 @@ function OrderBuilder(props){
 
         <div className="modal-actions" style={{justifyContent:"space-between"}}>
           <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSend} disabled={!canSend()}>{appendMode ? "Agregar a la comanda" : "Enviar a cocina"}</button>
+          <button className="btn btn-primary" onClick={handleSend} disabled={!canSend()}>{editMode ? "Guardar cambios" : (appendMode ? "Agregar a la comanda" : "Enviar a cocina")}</button>
         </div>
       </div>
 
@@ -3380,6 +3390,7 @@ function MesasModule(props){
 
   var [openingTable, setOpeningTable] = useState(null);
   var [appendingOrder, setAppendingOrder] = useState(null);
+  var [editingOrder, setEditingOrder] = useState(null);
   var [viewingOrder, setViewingOrder] = useState(null);
   var [, setTick] = useState(0);
 
@@ -3411,6 +3422,24 @@ function MesasModule(props){
     setAppendingOrder(null);
   }
 
+  function handleSaveEdit(newItems){
+    var orderId = editingOrder.id;
+    if (newItems.length === 0){
+      setEditingOrder(null);
+      return;
+    }
+    setOrders(orders.map(function(o){
+      if (o.id !== orderId) return o;
+      return Object.assign({}, o, {
+        items: newItems,
+        status: "en_cocina",
+        kitchenReady: false,
+        barReady: false
+      });
+    }));
+    setEditingOrder(null);
+  }
+
   if (openingTable){
     return (
       <OrderBuilder
@@ -3436,6 +3465,22 @@ function MesasModule(props){
         lockOrderType="Mesa"
         presetTableNumber={appendingOrder.tableNumber}
         tableId={appendingOrder.tableId}
+        currentEmployeeName={currentEmployeeName}
+      />
+    );
+  }
+
+  if (editingOrder){
+    return (
+      <OrderBuilder
+        dishes={dishes}
+        categories={categories}
+        editingOrder={editingOrder}
+        onSaveEdit={handleSaveEdit}
+        onCancel={function(){ setEditingOrder(null); }}
+        lockOrderType="Mesa"
+        presetTableNumber={editingOrder.tableNumber}
+        tableId={editingOrder.tableId}
         currentEmployeeName={currentEmployeeName}
       />
     );
@@ -3474,6 +3519,7 @@ function MesasModule(props){
                   <div className="mesa-actions">
                     <button className="btn btn-ghost" onClick={function(){ setViewingOrder(order); }}>Ver comanda</button>
                     <button className="btn btn-ghost" onClick={function(){ setAppendingOrder(order); }}>+ Agregar</button>
+                    <button className="btn btn-ghost" onClick={function(){ setEditingOrder(order); }}>Editar</button>
                     <button className="btn btn-primary" onClick={function(){ onCobrar(order.id); }}>Cobrar</button>
                   </div>
                 </div>
@@ -3512,6 +3558,7 @@ function MesasModule(props){
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={function(){ setViewingOrder(null); }}>Cerrar</button>
+              <button className="btn btn-ghost" onClick={function(){ var o = viewingOrder; setViewingOrder(null); setEditingOrder(o); }}>Editar</button>
               <button className="btn btn-primary" onClick={function(){ setViewingOrder(null); onCobrar(viewingOrder.id); }}>Cobrar</button>
             </div>
           </div>
@@ -3534,6 +3581,7 @@ function ComandasModule(props){
 
   var [building, setBuilding] = useState(false);
   var [showAll, setShowAll] = useState(false);
+  var [editingOrder, setEditingOrder] = useState(null);
   var [, setTick] = useState(0);
   var [pinPrompt, setPinPrompt] = useState(null);
 
@@ -3589,8 +3637,30 @@ function ComandasModule(props){
     });
   }
 
+  function handleSaveEdit(newItems){
+    var orderId = editingOrder.id;
+    if (newItems.length === 0){
+      setEditingOrder(null);
+      return;
+    }
+    setOrders(orders.map(function(o){
+      if (o.id !== orderId) return o;
+      return Object.assign({}, o, {
+        items: newItems,
+        status: "en_cocina",
+        kitchenReady: false,
+        barReady: false
+      });
+    }));
+    setEditingOrder(null);
+  }
+
   if (building){
     return <OrderBuilder dishes={dishes} categories={categories} onSend={handleSend} onCancel={function(){ setBuilding(false); }} customers={customers} tables={tables} orders={orders} settings={settings} currentEmployeeName={currentEmployeeName} />;
+  }
+
+  if (editingOrder){
+    return <OrderBuilder dishes={dishes} categories={categories} editingOrder={editingOrder} onSaveEdit={handleSaveEdit} onCancel={function(){ setEditingOrder(null); }} lockOrderType={editingOrder.type} presetTableNumber={editingOrder.type === "Mesa" ? editingOrder.tableNumber : ""} tableId={editingOrder.tableId} customers={customers} tables={tables} orders={orders} settings={settings} currentEmployeeName={currentEmployeeName} />;
   }
 
   var activeOrders = orders.filter(function(o){ return o.status === "en_cocina" || o.status === "listo"; });
@@ -3663,6 +3733,7 @@ function ComandasModule(props){
 
                 {(order.status === "en_cocina" || order.status === "listo") && (
                   <div className="order-card-actions">
+                    <button className="btn btn-ghost" onClick={function(){ setEditingOrder(order); }}>Editar</button>
                     <button className="btn btn-danger-ghost" onClick={function(){ cancelOrder(order.id); }}>Cancelar</button>
                   </div>
                 )}
