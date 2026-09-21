@@ -1372,7 +1372,7 @@ if (SYNC_ENABLED){
       publicada, no una copia vieja guardada en el dispositivo.
    Mientras APP_UPDATE_URL esté vacío, este chequeo simplemente no hace nada
    (no rompe el modo local ni el modo Firebase). */
-var APP_VERSION = "2026-09-21-1";
+var APP_VERSION = "2026-09-21-2";
 var APP_UPDATE_URL = "https://makizenroll-bit.github.io/makizen-roll/version.json";
 
 function useAppUpdateChecker(){
@@ -1696,6 +1696,7 @@ function seedCategories(){
 var ORDER_TYPES = ["Mesa", "Para llevar", "Domicilio"];
 var PAYMENT_METHODS = ["Efectivo", "Tarjeta", "Transferencia"];
 var GASTO_CATEGORIES = ["Ingredientes", "Servicios", "Renta", "Empleados", "Otros"];
+var ALLOWED_EMPLOYEE_VIEWS = ["mesas", "pos", "caja", "cocina", "bar"];
 
 function seedTables(){
   return [
@@ -2134,6 +2135,7 @@ function orderDisplayLabel(order){
 function Sidebar(props){
   var view = props.view;
   var setView = props.setView;
+  var restricted = props.restricted;
 
   var mainItems = [
     { key:"dashboard", label:"Panel general", icon:"◆" },
@@ -2148,6 +2150,11 @@ function Sidebar(props){
     { key:"clientes", label:"Clientes / Delivery", icon:"🛵" },
     { key:"config", label:"Configuración", icon:"⚙" }
   ];
+
+  if (restricted){
+    mainItems = mainItems.filter(function(item){ return ALLOWED_EMPLOYEE_VIEWS.indexOf(item.key) !== -1; });
+  }
+
   var soonItems = [];
 
   return (
@@ -6036,6 +6043,9 @@ function AppInner(){
   var [configPinPrompt, setConfigPinPrompt] = useState(false);
 
   function goToView(key){
+    if (isRestrictedEmployee && ALLOWED_EMPLOYEE_VIEWS.indexOf(key) === -1){
+      return;
+    }
     if (key === "config" && !configUnlocked){
       setConfigPinPrompt(true);
       return;
@@ -6068,6 +6078,8 @@ function AppInner(){
   var currentEmployee = currentEmployeeId === "admin"
     ? { id:"admin", name:"Administrador" }
     : (employeesList.find(function(e){ return e.id === currentEmployeeId; }) || null);
+  var isRestrictedEmployee = !!(currentEmployee && currentEmployee.id !== "admin");
+  var effectiveView = (isRestrictedEmployee && ALLOWED_EMPLOYEE_VIEWS.indexOf(view) === -1) ? "pos" : view;
 
   function selectEmployee(emp){
     setPinTarget(emp);
@@ -6166,11 +6178,11 @@ function AppInner(){
     clientes: { title:"Clientes / Delivery", sub:"Directorio de clientes y domicilios en curso" },
     config: { title:"Configuración", sub:"Datos del restaurante, mesas y sincronización" }
   };
-  var current = titles[view] || titles.dashboard;
+  var current = titles[effectiveView] || titles.dashboard;
 
   return (
     <div className="app-shell">
-      <Sidebar view={view} setView={goToView} />
+      <Sidebar view={effectiveView} setView={goToView} restricted={isRestrictedEmployee} />
       <div className="main">
         <div className="topbar">
           <div>
@@ -6193,17 +6205,17 @@ function AppInner(){
           </div>
         </div>
         <div className="content">
-          {view === "dashboard" && <Dashboard dishes={dishes} orders={orders} />}
-          {view === "menu" && <MenuModule dishes={dishes} setDishes={setDishes} categories={categories} setCategories={setCategories} />}
-          {view === "mesas" && <MesasModule dishes={dishes} orders={orders} setOrders={setOrders} tables={tables} onCobrar={goToCaja} categories={categories} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
-          {view === "pos" && <ComandasModule dishes={dishes} orders={orders} setOrders={setOrders} customers={customers} setCustomers={setCustomers} categories={categories} tables={tables} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
-          {view === "caja" && <CajaModule orders={orders} setOrders={setOrders} focusOrderId={cajaFocusId} clearFocus={function(){ setCajaFocusId(null); }} settings={settings} cortes={cortes} setCortes={setCortes} customers={customers} setCustomers={setCustomers} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} gastos={gastos} setGastos={setGastos} />}
-          {view === "cocina" && <KDSModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
-          {view === "bar" && <BarModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
-          {view === "inventario" && <InventarioModule inventory={inventory} setInventory={setInventory} />}
-          {view === "reportes" && <ReportesModule orders={orders} dishes={dishes} setOrders={setOrders} settings={settings} cortes={cortes} />}
-          {view === "clientes" && <ClientesModule customers={customers} setCustomers={setCustomers} orders={orders} setOrders={setOrders} />}
-          {view === "config" && <ConfiguracionModule settings={settings} setSettings={setSettings} tables={tables} setTables={setTables} isOnline={isOnline} dishes={dishes} categories={categories} orders={orders} customers={customers} cortes={cortes} />}
+          {effectiveView === "dashboard" && <Dashboard dishes={dishes} orders={orders} />}
+          {effectiveView === "menu" && <MenuModule dishes={dishes} setDishes={setDishes} categories={categories} setCategories={setCategories} />}
+          {effectiveView === "mesas" && <MesasModule dishes={dishes} orders={orders} setOrders={setOrders} tables={tables} onCobrar={goToCaja} categories={categories} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
+          {effectiveView === "pos" && <ComandasModule dishes={dishes} orders={orders} setOrders={setOrders} customers={customers} setCustomers={setCustomers} categories={categories} tables={tables} settings={settings} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} />}
+          {effectiveView === "caja" && <CajaModule orders={orders} setOrders={setOrders} focusOrderId={cajaFocusId} clearFocus={function(){ setCajaFocusId(null); }} settings={settings} cortes={cortes} setCortes={setCortes} customers={customers} setCustomers={setCustomers} currentEmployeeName={currentEmployee ? currentEmployee.name : ""} gastos={gastos} setGastos={setGastos} />}
+          {effectiveView === "cocina" && <KDSModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
+          {effectiveView === "bar" && <BarModule orders={orders} setOrders={setOrders} settings={settings} dishes={dishes} />}
+          {!isRestrictedEmployee && effectiveView === "inventario" && <InventarioModule inventory={inventory} setInventory={setInventory} />}
+          {!isRestrictedEmployee && effectiveView === "reportes" && <ReportesModule orders={orders} dishes={dishes} setOrders={setOrders} settings={settings} cortes={cortes} />}
+          {!isRestrictedEmployee && effectiveView === "clientes" && <ClientesModule customers={customers} setCustomers={setCustomers} orders={orders} setOrders={setOrders} />}
+          {!isRestrictedEmployee && effectiveView === "config" && <ConfiguracionModule settings={settings} setSettings={setSettings} tables={tables} setTables={setTables} isOnline={isOnline} dishes={dishes} categories={categories} orders={orders} customers={customers} cortes={cortes} />}
         </div>
       </div>
 
